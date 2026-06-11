@@ -1,6 +1,6 @@
 <?php
 // actions/reseteaza_pontaj.php
-
+// primul comentariu in git
 $mysqli = new mysqli("localhost", "root", "", "2web_pontaj");
 if ($mysqli->connect_errno) die("Eroare DB: " . $mysqli->connect_error);
 
