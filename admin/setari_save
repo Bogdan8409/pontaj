@@ -1,0 +1,31 @@
+<?php
+require '../includes/db.php';
+
+$type = $_POST['type']; // email | factura
+
+if ($type === 'email') {
+    $stmt = $pdo->prepare("
+        UPDATE settings SET value = ? WHERE name = ?
+    ");
+
+    $stmt->execute([$_POST['admin_emails'], 'admin_emails']);
+    $stmt->execute([$_POST['smtp_host'], 'smtp_host']);
+    $stmt->execute([$_POST['smtp_port'], 'smtp_port']);
+    $stmt->execute([$_POST['smtp_user'], 'smtp_user']);
+    $stmt->execute([$_POST['smtp_pass'], 'smtp_pass']);
+    $stmt->execute([$_POST['email_template'], 'email_template']);
+}
+
+if ($type === 'factura') {
+    $stmt = $pdo->prepare("
+        UPDATE settings SET value = ? WHERE name = ?
+    ");
+
+    $stmt->execute([$_POST['company_name'], 'company_name']);
+    $stmt->execute([$_POST['cui'], 'company_cui']);
+    $stmt->execute([$_POST['iban'], 'company_iban']);
+    $stmt->execute([$_POST['serie'], 'invoice_series']);
+    $stmt->execute([$_POST['start_number'], 'invoice_start']);
+}
+
+header('Location: /admin/setari?success=1');

@@ -1,0 +1,2 @@
+  $client         = $_POST['client'] ?? 'Nume lipsă';
+        $serie_factura  = $_POST['serie_factura'] ?? 'Serie lipsă';

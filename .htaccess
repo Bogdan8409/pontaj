@@ -1,0 +1,1 @@
+RewriteRule ^admin/pontaj/([0-9]+)$ /admin/pontaj.php?id=$1 [L,QSA]
