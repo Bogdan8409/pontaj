@@ -601,6 +601,12 @@
                 const box = document.getElementById(boxId);
                 box.innerText = message;
                 box.classList.remove("d-none");
+                // hide corresponding success box if present
+                try {
+                    const succId = boxId.replace(/Error$/i, 'Success');
+                    const succ = document.getElementById(succId);
+                    if (succ) { succ.classList.add('d-none'); }
+                } catch(e){}
             }
 
             function showSuccess(input, boxId) {
@@ -609,6 +615,12 @@
                 const box = document.getElementById(boxId);
                 box.innerText = "Valid";
                 box.classList.remove("d-none");
+                // hide corresponding error box if present
+                try {
+                    const errId = boxId.replace(/Success$/i, 'Error');
+                    const err = document.getElementById(errId);
+                    if (err) { err.classList.add('d-none'); }
+                } catch(e){}
             }
 
             /* ------------------ BUTON FINAL ------------------ */
@@ -710,11 +722,11 @@
 
             clientSelect.addEventListener("change", function () {
                 if (this.value === "") {
-                    document.getElementById("clientError").innerText = "Selectati client";
-                    document.getElementById("clientError").classList.remove("d-none");
+                    // show error and hide success
+                    showError(this, 'clientError', 'Selectati client');
                 } else {
-                    document.getElementById("clientSuccess").innerText = "Client selectat";
-                    document.getElementById("clientSuccess").classList.remove("d-none");
+                    // show success and hide error
+                    showSuccess(this, 'clientSuccess');
                 }
 
                 updateSubmit();
@@ -779,7 +791,9 @@
 
                 updateSubmit();
             });
-            // Alert Bootstrap
+            // Alert Bootstrap (only show when server indicates success)
+            const showServerAlert = <?php echo (isset($msg) && $msg === 'ok') ? 'true' : 'false'; ?>;
+            if (showServerAlert) {
                 const alertDiv = document.createElement('div');
                 alertDiv.className = 'alert alert-success alert-dismissible fade show mt-4';
                 alertDiv.innerHTML = `
@@ -788,7 +802,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 `;
 
-                document.querySelector('.p-4').prepend(alertDiv);
+            }
         });
 
     </script>

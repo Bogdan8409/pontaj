@@ -45,25 +45,27 @@ if (!$pontaj) {
   die('Pontaj inexistent');
 }
 
-// ── Istoric din BD ───────────────────────────────────────────────────────────
-// $istoric = [];
-// $stmtI = $mysqli->prepare(
-//     'SELECT data_actiune, actiune, utilizator
-//      FROM   istoric_pontaje
-//      WHERE  pontaj_id = ?
-//      ORDER BY data_actiune ASC'
-// );
-// if ($stmtI) {                   // tabelul poate lipsi în dev → fallback sigur
-//     $stmtI->bind_param('i', $idPontaj);
-//     $stmtI->execute();
-//     $resI = $stmtI->get_result();
-//     while ($row = $resI->fetch_assoc()) {
-//         $istoric[] = $row;
-//     }
-//     $stmtI->close();
-// }
 
-// $mysqli->close();
+// ============ FETCH ISTORIC ============
+$istoric = [];
+$stmtI = $mysqli->prepare(
+    'SELECT `data_actiune`, `actiune`, `utilizator`
+     FROM `istoric_pontaje`
+     WHERE `pontaj_id` = ?
+     ORDER BY `data_actiune` ASC'
+);
+ 
+if ($stmtI) {
+    $stmtI->bind_param('i', $idPontaj);
+    $stmtI->execute();
+    $resI = $stmtI->get_result();
+    while ($row = $resI->fetch_assoc()) {
+        $istoric[] = $row;
+    }
+    $stmtI->close();
+}
+ 
+$mysqli->close();
 
 // Helper: escape scurt
 function e(mixed $v): string
@@ -103,7 +105,7 @@ function e(mixed $v): string
           <ul class="nav nav-pills nav-sidebar flex-column">
           <li class="nav-item"><a href="../index.php" class="nav-link"><i class="nav-icon fas fa-tachometer-alt"></i><p>Dashboard</p></a></li>
           <li class="nav-item"><a href="../pontaje.php" class="nav-link"><i class="nav-icon fas fa-file-alt"></i><p>Pontaje</p></a></li>
-          <li class="nav-item"><a href="../rapoarte.php" class="nav-link active"><i class="nav-icon fas fa-chart-bar"></i><p>Rapoarte</p></a></li>
+          <li class="nav-item"><a href="../rapoarte.php" class="nav-link"><i class="nav-icon fas fa-chart-bar"></i><p>Rapoarte</p></a></li>
           <li class="nav-item"><a href="../setari.php" class="nav-link"><i class="nav-icon fas fa-cog"></i><p>Setări</p></a></li>
         </ul>
         </nav>

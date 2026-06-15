@@ -237,7 +237,7 @@ $result = $mysqli->query($sql);
                                                        class="btn btn-primary btn-sm">
                                                         <i class="fas fa-file-pdf"></i> Vezi
                                                     </a>
-                                                    <a href="/facturi/<?= htmlspecialchars(rawurlencode(basename($row['factura_pdf_path']))) ?>"
+                                                    <a href="../facturi/<?= htmlspecialchars(rawurlencode(basename($row['factura_pdf_path']))) ?>"
                                                        download="<?= htmlspecialchars(basename($row['factura_pdf_path'])) ?>"
                                                        class="btn btn-outline-primary btn-sm"
                                                        title="Descarcă">
