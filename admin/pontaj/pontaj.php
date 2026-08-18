@@ -1,6 +1,6 @@
 <?php
 if (!isset($_GET['id'])) {
-  header("Location: /2web_sistem_pontaj/admin/pontaje.php");
+  header("Location: /2web_pontaj/admin/pontaje.php");
   exit;
 }
 $conn = new mysqli("localhost", "root", "", "2web_pontaj");
@@ -87,7 +87,7 @@ $result = $conn->query($sql);
         </table>
       </div>
       <div class="card-footer text-end">
-        <a href="/2web_sistem_pontaj/admin/pontaje.php" class="btn btn-secondary">
+        <a href="/2web_pontaj/admin/pontaje.php" class="btn btn-secondary">
           Înapoi
         </a>
         <?php if ($pontaj['status'] === 'Pending'): ?>
