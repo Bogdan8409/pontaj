@@ -2,28 +2,35 @@
 declare(strict_types=1);
 
 /**
- * EFacturaXML.php
+ * ============================================================
+ * EFACTURA XML - RO e-Factura / UBL 2.1
+ * ============================================================
  *
- * Generator XML RO e-Factura UBL 2.1
+ * Baza de date:
+ *   2web_pontaj
  *
- * Compatibil cu:
- *   - facturi
- *   - clienti
- *   - pontaje
- *   - setari
+ * Tabele folosite:
+ *   pontaje  (sursa principala a datelor facturii)
+ *   clienti
+ *   setari   (date furnizor, randul cu cheie = 'date_firma')
  *
- * Nu necesita config/database.php.
+ * XML-ul se genereaza direct din randul din 'pontaje',
+ * la fel ca PDF-ul generat de actions/genereaza_factura.php.
+ * Nu se mai foloseste un tabel separat 'facturi'.
  *
- * Utilizare:
- *   EFacturaXML.php?id=1
+ * Nu necesita config/database.php
  *
- * Exemplu:
+ * Utilizare (parametrul 'id' este ID-ul din tabela 'pontaje'):
+ *
  *   http://localhost/pontaj/EFacturaXML.php?id=1
+ *
+ * ============================================================
  */
 
-// ============================================================
-// CONFIGURARE BAZA DE DATE
-// ============================================================
+
+/* ============================================================
+   1. CONFIGURARE MYSQL
+   ============================================================ */
 
 $dbHost = '127.0.0.1';
 $dbName = '2web_pontaj';
@@ -31,36 +38,46 @@ $dbUser = 'root';
 $dbPass = '';
 $dbCharset = 'utf8mb4';
 
-// ============================================================
-// DIRECTOR XML
-// ============================================================
 
-$xmlDirectory = __DIR__ . DIRECTORY_SEPARATOR . 'storage' .
-                DIRECTORY_SEPARATOR . 'facturi' .
-                DIRECTORY_SEPARATOR . 'xml';
+/* ============================================================
+   2. DIRECTOR XML
+   ============================================================ */
 
-// ============================================================
-// HEADERE
-// ============================================================
+$xmlDirectory = __DIR__
+    . DIRECTORY_SEPARATOR . 'storage'
+    . DIRECTORY_SEPARATOR . 'facturi'
+    . DIRECTORY_SEPARATOR . 'xml';
+
+
+/* ============================================================
+   3. HEADERE
+   ============================================================ */
 
 header('Content-Type: text/html; charset=UTF-8');
 
-// ============================================================
-// CONECTARE PDO
-// ============================================================
+
+/* ============================================================
+   4. CONECTARE DATABASE
+   ============================================================ */
 
 try {
 
-    $dsn = "mysql:host={$dbHost};dbname={$dbName};charset={$dbCharset}";
+    $dsn =
+        "mysql:host={$dbHost};dbname={$dbName};charset={$dbCharset}";
 
     $pdo = new PDO(
         $dsn,
         $dbUser,
         $dbPass,
         [
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES   => false
+            PDO::ATTR_ERRMODE =>
+                PDO::ERRMODE_EXCEPTION,
+
+            PDO::ATTR_DEFAULT_FETCH_MODE =>
+                PDO::FETCH_ASSOC,
+
+            PDO::ATTR_EMULATE_PREPARES =>
+                false
         ]
     );
 
@@ -69,86 +86,32 @@ try {
     http_response_code(500);
 
     die(
-        '<h2>Eroare conexiune baza de date</h2>' .
-        '<pre>' . htmlspecialchars($e->getMessage()) . '</pre>'
+        '<h2>Eroare conectare MySQL</h2>' .
+        '<pre>' .
+        htmlspecialchars(
+            $e->getMessage(),
+            ENT_QUOTES,
+            'UTF-8'
+        ) .
+        '</pre>'
     );
 }
 
-// ============================================================
-// FUNCȚII
-// ============================================================
 
-function h(string $value): string
+/* ============================================================
+   5. FUNCȚII
+   ============================================================ */
+
+function xmlText(?string $value): string
 {
     return htmlspecialchars(
-        $value,
+        (string)$value,
         ENT_XML1 | ENT_QUOTES,
         'UTF-8'
     );
 }
 
 
-/**
- * Citește o setare din tabela setari.
- */
-function getSetting(PDO $pdo, string $key, bool $required = false): string
-{
-    $stmt = $pdo->prepare("
-        SELECT valoare
-        FROM setari
-        WHERE cheie = :cheie
-        LIMIT 1
-    ");
-
-    $stmt->execute([
-        ':cheie' => $key
-    ]);
-
-    $value = $stmt->fetchColumn();
-
-    $value = $value === false ? '' : trim((string)$value);
-
-    if ($required && $value === '') {
-        throw new RuntimeException(
-            "Lipsește setarea furnizorului: {$key}"
-        );
-    }
-
-    return $value;
-}
-
-
-/**
- * Normalizează CUI.
- */
-function normalizeCui(string $cui): string
-{
-    $cui = strtoupper(trim($cui));
-
-    $cui = preg_replace('/[^A-Z0-9]/', '', $cui);
-
-    return (string)$cui;
-}
-
-
-/**
- * Returnează CUI fără RO.
- */
-function cuiWithoutRo(string $cui): string
-{
-    $cui = normalizeCui($cui);
-
-    if (str_starts_with($cui, 'RO')) {
-        return substr($cui, 2);
-    }
-
-    return $cui;
-}
-
-
-/**
- * Formatează numerele pentru XML.
- */
 function money(float $value): string
 {
     return number_format(
@@ -160,486 +123,403 @@ function money(float $value): string
 }
 
 
-/**
- * Escape XML.
- */
-function xmlValue(?string $value): string
+function decimalValue(float $value): string
 {
-    return h((string)$value);
-}
-
-
-// ============================================================
-// ID FACTURĂ
-// ============================================================
-
-$facturaId = filter_input(
-    INPUT_GET,
-    'id',
-    FILTER_VALIDATE_INT
-);
-
-if (!$facturaId) {
-
-    http_response_code(400);
-
-    die(
-        '<h2>ID factură lipsă</h2>' .
-        '<p>Exemplu:</p>' .
-        '<pre>EFacturaXML.php?id=1</pre>'
+    return rtrim(
+        rtrim(
+            number_format(
+                $value,
+                4,
+                '.',
+                ''
+            ),
+            '0'
+        ),
+        '.'
     );
 }
 
 
-// ============================================================
-// CITIRE FACTURA
-// ============================================================
+function normalizeCui(string $cui): string
+{
+    $cui = strtoupper(trim($cui));
 
-$stmt = $pdo->prepare("
-    SELECT *
-    FROM facturi
-    WHERE id = :id
-    LIMIT 1
-");
-
-$stmt->execute([
-    ':id' => $facturaId
-]);
-
-$factura = $stmt->fetch();
-
-if (!$factura) {
-
-    http_response_code(404);
-
-    die(
-        '<h2>Factura nu există</h2>' .
-        '<p>ID: ' .
-        htmlspecialchars((string)$facturaId) .
-        '</p>'
+    $cui = preg_replace(
+        '/[^A-Z0-9]/',
+        '',
+        $cui
     );
+
+    return (string)$cui;
 }
 
 
-// ============================================================
-// CITIRE CLIENT
-// ============================================================
+function cuiNumeric(string $cui): string
+{
+    $cui = normalizeCui($cui);
 
-$stmt = $pdo->prepare("
-    SELECT *
-    FROM clienti
-    WHERE id = :id
-    LIMIT 1
-");
-
-$stmt->execute([
-    ':id' => $factura['client_id']
-]);
-
-$client = $stmt->fetch();
-
-if (!$client) {
-
-    throw new RuntimeException(
-        'Clientul facturii nu există în tabela clienti.'
-    );
-}
-
-
-// ============================================================
-// DATE FURNIZOR DIN SETARI
-// ============================================================
-
-$furnizor = [
-
-    'nume' => getSetting(
-        $pdo,
-        'efactura_furnizor_nume',
-        true
-    ),
-
-    'cui' => getSetting(
-        $pdo,
-        'efactura_furnizor_cui',
-        true
-    ),
-
-    'reg_com' => getSetting(
-        $pdo,
-        'efactura_furnizor_reg_com'
-    ),
-
-    'adresa' => getSetting(
-        $pdo,
-        'efactura_furnizor_adresa',
-        true
-    ),
-
-    'localitate' => getSetting(
-        $pdo,
-        'efactura_furnizor_localitate',
-        true
-    ),
-
-    'judet' => getSetting(
-        $pdo,
-        'efactura_furnizor_judet'
-    ),
-
-    'cod_postal' => getSetting(
-        $pdo,
-        'efactura_furnizor_cod_postal'
-    ),
-
-    'telefon' => getSetting(
-        $pdo,
-        'efactura_furnizor_telefon'
-    ),
-
-    'email' => getSetting(
-        $pdo,
-        'efactura_furnizor_email'
-    ),
-
-    'banca' => getSetting(
-        $pdo,
-        'efactura_furnizor_banca'
-    ),
-
-    'iban' => getSetting(
-        $pdo,
-        'efactura_furnizor_iban'
-    )
-];
-
-
-// ============================================================
-// VALIDARE CLIENT
-// ============================================================
-
-$clientNume = trim((string)$client['nume']);
-
-$clientCui = trim((string)$client['cui']);
-
-$clientAdresa = trim((string)$client['adresa']);
-
-$clientEmail = trim((string)$client['email']);
-
-$clientTelefon = trim((string)$client['telefon']);
-
-$clientLocalitate = '';
-
-$clientJudet = '';
-
-$clientCodPostal = '';
-
-
-// ------------------------------------------------------------
-// Încercăm să extragem localitatea/județul din adresă
-// dacă tabela clienti nu are coloane separate.
-// ------------------------------------------------------------
-
-if ($clientAdresa !== '') {
-
-    $parts = array_map(
-        'trim',
-        preg_split(
-            '/[,;]+/',
-            $clientAdresa
-        )
-    );
-
-    if (count($parts) >= 2) {
-
-        $clientLocalitate = $parts[count($parts) - 2] ?? '';
-
-        $clientJudet = $parts[count($parts) - 1] ?? '';
+    if (str_starts_with($cui, 'RO')) {
+        return substr($cui, 2);
     }
+
+    return $cui;
 }
 
 
-// ============================================================
-// CUI CLIENT
-// ============================================================
+/* ============================================================
+   VALIDARE CIFRA DE CONTROL CUI (algoritm oficial ANAF)
+   ============================================================ */
 
-$clientCuiNormalized = normalizeCui($clientCui);
+function cuiChecksumValid(string $cui): bool
+{
+    $numeric = cuiNumeric($cui);
 
-$clientCuiNumeric = cuiWithoutRo($clientCui);
+    if (
+        $numeric === '' ||
+        !ctype_digit($numeric)
+    ) {
+        return false;
+    }
 
+    $len = strlen($numeric);
 
-// ============================================================
-// CUI FURNIZOR
-// ============================================================
+    /*
+     * CUI-urile RO au între 2 și 10 cifre
+     * (ultima fiind cifra de control).
+     */
 
-$furnizorCuiNormalized = normalizeCui(
-    $furnizor['cui']
-);
+    if ($len < 2 || $len > 10) {
+        return false;
+    }
 
-$furnizorCuiNumeric = cuiWithoutRo(
-    $furnizor['cui']
-);
+    $controlDigit =
+        (int)substr($numeric, -1);
 
+    $base =
+        str_pad(
+            substr($numeric, 0, $len - 1),
+            9,
+            '0',
+            STR_PAD_LEFT
+        );
 
-// ============================================================
-// DATE FACTURA
-// ============================================================
+    $key = [7, 5, 3, 2, 1, 7, 5, 3, 2];
 
-$serie = trim((string)$factura['serie']);
+    $sum = 0;
 
-$numar = trim((string)$factura['numar']);
+    for ($i = 0; $i < 9; $i++) {
 
-$numarFactura = $serie . $numar;
+        $sum +=
+            (int)$base[$i] * $key[$i];
+    }
 
-$dataEmitere = date(
-    'Y-m-d',
-    strtotime((string)$factura['data_emitere'])
-);
+    $rest = ($sum * 10) % 11;
 
-$dataScadenta = date(
-    'Y-m-d',
-    strtotime((string)$factura['data_scadenta'])
-);
+    if ($rest === 10) {
+        $rest = 0;
+    }
 
-$moneda = strtoupper(
-    trim((string)($factura['moneda'] ?: 'RON'))
-);
-
-$subtotal = (float)$factura['subtotal'];
-
-$tva = (float)$factura['tva'];
-
-$total = (float)$factura['total'];
-
-
-// ============================================================
-// CALCUL TVA
-// ============================================================
-
-if ($subtotal > 0 && $tva > 0) {
-
-    $tvaPercent = round(
-        ($tva / $subtotal) * 100,
-        2
-    );
-
-} else {
-
-    $tvaPercent = 0;
+    return $rest === $controlDigit;
 }
 
 
-// ============================================================
-// TIP FACTURA
-// ============================================================
-//
-// 380 = Invoice
-//
-// ============================================================
+/* ============================================================
+   JUDET -> COD ISO 3166-2:RO
+   ============================================================ */
 
-$invoiceTypeCode = '380';
+function judetIso(string $judet): string
+{
+    $judet = trim($judet);
+
+    if ($judet === '') {
+        return '';
+    }
+
+    /*
+     * Dacă vine deja în formatul corect (ex: "RO-VN"),
+     * îl păstrăm neschimbat.
+     */
+
+    if (preg_match('/^RO-[A-Z]{1,2}$/', strtoupper($judet))) {
+        return strtoupper($judet);
+    }
+
+    $normalize = static function (string $value): string {
+
+        $value = strtolower(trim($value));
+
+        $value = strtr(
+            $value,
+            [
+                'ă' => 'a', 'â' => 'a', 'î' => 'i',
+                'ș' => 's', 'ş' => 's',
+                'ț' => 't', 'ţ' => 't'
+            ]
+        );
+
+        return $value;
+    };
+
+    $map = [
+        'alba' => 'RO-AB',
+        'arad' => 'RO-AR',
+        'arges' => 'RO-AG',
+        'bacau' => 'RO-BC',
+        'bihor' => 'RO-BH',
+        'bistrita-nasaud' => 'RO-BN',
+        'bistrita nasaud' => 'RO-BN',
+        'botosani' => 'RO-BT',
+        'brasov' => 'RO-BV',
+        'braila' => 'RO-BR',
+        'buzau' => 'RO-BZ',
+        'caras-severin' => 'RO-CS',
+        'caras severin' => 'RO-CS',
+        'calarasi' => 'RO-CL',
+        'cluj' => 'RO-CJ',
+        'constanta' => 'RO-CT',
+        'covasna' => 'RO-CV',
+        'dambovita' => 'RO-DB',
+        'dolj' => 'RO-DJ',
+        'galati' => 'RO-GL',
+        'giurgiu' => 'RO-GR',
+        'gorj' => 'RO-GJ',
+        'harghita' => 'RO-HR',
+        'hunedoara' => 'RO-HD',
+        'ialomita' => 'RO-IL',
+        'iasi' => 'RO-IS',
+        'ilfov' => 'RO-IF',
+        'maramures' => 'RO-MM',
+        'mehedinti' => 'RO-MH',
+        'mures' => 'RO-MS',
+        'neamt' => 'RO-NT',
+        'olt' => 'RO-OT',
+        'prahova' => 'RO-PH',
+        'satu mare' => 'RO-SM',
+        'salaj' => 'RO-SJ',
+        'sibiu' => 'RO-SB',
+        'suceava' => 'RO-SV',
+        'teleorman' => 'RO-TR',
+        'timis' => 'RO-TM',
+        'tulcea' => 'RO-TL',
+        'vaslui' => 'RO-VS',
+        'valcea' => 'RO-VL',
+        'vrancea' => 'RO-VN',
+        'bucuresti' => 'RO-B',
+        'municipiul bucuresti' => 'RO-B',
+        'bucuresti sector 1' => 'RO-B',
+        'bucuresti sector 2' => 'RO-B',
+        'bucuresti sector 3' => 'RO-B',
+        'bucuresti sector 4' => 'RO-B',
+        'bucuresti sector 5' => 'RO-B',
+        'bucuresti sector 6' => 'RO-B'
+    ];
+
+    $key = $normalize($judet);
+
+    return $map[$key] ?? '';
+}
 
 
-// ============================================================
-// CITIRE PONTAJ
-// ============================================================
+/* ============================================================
+   ORAS -> JUDET (fallback cand lipseste coloana 'judet')
+   ============================================================ */
 
-$pontaj = null;
+function judetIsoFromCity(string $city): string
+{
+    $city = trim($city);
 
-if (!empty($factura['numar_timesheet'])) {
+    if ($city === '') {
+        return '';
+    }
 
-    $stmt = $pdo->prepare("
-        SELECT *
-        FROM pontaje
-        WHERE id = :id
+    $normalize = static function (string $value): string {
+
+        $value = strtolower(trim($value));
+
+        $value = strtr(
+            $value,
+            [
+                'ă' => 'a', 'â' => 'a', 'î' => 'i',
+                'ș' => 's', 'ş' => 's',
+                'ț' => 't', 'ţ' => 't'
+            ]
+        );
+
+        return $value;
+    };
+
+    /*
+     * Acoperă reședințele de județ și câteva orașe mari
+     * frecvent întâlnite. Nu e o listă exhaustivă a tuturor
+     * localităților din România — pentru acuratețe completă,
+     * completează coloana 'judet' din tabela clienti.
+     */
+
+    $map = [
+        'alba iulia' => 'RO-AB',
+        'arad' => 'RO-AR',
+        'pitesti' => 'RO-AG',
+        'bacau' => 'RO-BC',
+        'oradea' => 'RO-BH',
+        'bistrita' => 'RO-BN',
+        'botosani' => 'RO-BT',
+        'brasov' => 'RO-BV',
+        'braila' => 'RO-BR',
+        'buzau' => 'RO-BZ',
+        'resita' => 'RO-CS',
+        'calarasi' => 'RO-CL',
+        'cluj-napoca' => 'RO-CJ',
+        'cluj napoca' => 'RO-CJ',
+        'constanta' => 'RO-CT',
+        'sfantu gheorghe' => 'RO-CV',
+        'targoviste' => 'RO-DB',
+        'craiova' => 'RO-DJ',
+        'galati' => 'RO-GL',
+        'giurgiu' => 'RO-GR',
+        'targu jiu' => 'RO-GJ',
+        'miercurea ciuc' => 'RO-HR',
+        'deva' => 'RO-HD',
+        'slobozia' => 'RO-IL',
+        'iasi' => 'RO-IS',
+        'baia mare' => 'RO-MM',
+        'drobeta-turnu severin' => 'RO-MH',
+        'drobeta turnu severin' => 'RO-MH',
+        'targu mures' => 'RO-MS',
+        'piatra neamt' => 'RO-NT',
+        'slatina' => 'RO-OT',
+        'ploiesti' => 'RO-PH',
+        'satu mare' => 'RO-SM',
+        'zalau' => 'RO-SJ',
+        'sibiu' => 'RO-SB',
+        'suceava' => 'RO-SV',
+        'alexandria' => 'RO-TR',
+        'timisoara' => 'RO-TM',
+        'tulcea' => 'RO-TL',
+        'vaslui' => 'RO-VS',
+        'ramnicu valcea' => 'RO-VL',
+        'focsani' => 'RO-VN',
+        'bucuresti' => 'RO-B'
+    ];
+
+    $key = $normalize($city);
+
+    return $map[$key] ?? '';
+}
+
+
+/* ============================================================
+   SETARE DIN DATABASE
+   ============================================================ */
+
+function getSetting(
+    PDO $pdo,
+    string $key,
+    bool $required = false
+): string {
+
+    $stmt = $pdo->prepare(
+        "
+        SELECT valoare
+        FROM setari
+        WHERE cheie = :cheie
         LIMIT 1
-    ");
+        "
+    );
 
     $stmt->execute([
-        ':id' => $factura['numar_timesheet']
+        ':cheie' => $key
     ]);
 
-    $pontaj = $stmt->fetch();
+    $value = $stmt->fetchColumn();
+
+    if ($value === false) {
+        $value = '';
+    }
+
+    $value = trim((string)$value);
+
+    if (
+        $required &&
+        $value === ''
+    ) {
+
+        throw new RuntimeException(
+            'Lipsește setarea: ' . $key
+        );
+    }
+
+    return $value;
 }
 
 
-// ============================================================
-// Dacă numar_timesheet nu este ID, încercăm număr factură
-// ============================================================
+/* ============================================================
+   SETARI FURNIZOR (rand dedicat, coloane separate)
+   ============================================================ */
 
-if (!$pontaj && !empty($factura['numar_timesheet'])) {
+function getFurnizorSettings(
+    PDO $pdo,
+    string $key = 'date_firma'
+): array {
 
-    $stmt = $pdo->prepare("
-        SELECT *
-        FROM pontaje
-        WHERE numar_factura = :numar
-        AND serie_factura = :serie
+    $stmt = $pdo->prepare(
+        "
+        SELECT
+            furnizor_nume,
+            furnizor_cui,
+            furnizor_reg_com,
+            furnizor_adresa,
+            furnizor_localitate,
+            furnizor_judet,
+            furnizor_cod_postal,
+            furnizor_telefon,
+            furnizor_email,
+            furnizor_banca,
+            furnizor_iban
+        FROM setari
+        WHERE cheie = :cheie
         LIMIT 1
-    ");
-
-    $stmt->execute([
-        ':numar' => $numar,
-        ':serie' => $serie
-    ]);
-
-    $pontaj = $stmt->fetch();
-}
-
-
-// ============================================================
-// DATE PONTAJ
-// ============================================================
-
-$zileFacturate = 0;
-
-$numeColaborator = trim(
-    (string)$factura['nume_colaborator']
-);
-
-$lunaFacturare = '';
-
-if ($pontaj) {
-
-    $zileFacturate = (float)(
-        $pontaj['zile_facturate'] ?? 0
+        "
     );
 
-    if (!empty($pontaj['nume_prenume'])) {
+    $stmt->execute([
+        ':cheie' => $key
+    ]);
 
-        $numeColaborator =
-            trim((string)$pontaj['nume_prenume']);
+    $row = $stmt->fetch();
+
+    if (!$row) {
+
+        throw new RuntimeException(
+            'Lipsesc setările furnizorului (cheie: ' . $key . ').'
+        );
     }
 
-    if (!empty($pontaj['luna_facturare'])) {
-
-        $lunaFacturare =
-            (string)$pontaj['luna_facturare'];
-    }
+    return $row;
 }
 
 
-// ============================================================
-// DESCRIERE SERVICIU
-// ============================================================
+/* ============================================================
+   XML BASIC ELEMENT
+   ============================================================ */
 
-$descriere = 'Servicii conform pontaj';
-
-if ($lunaFacturare !== '') {
-
-    $timestampLuna = strtotime($lunaFacturare);
-
-    if ($timestampLuna !== false) {
-
-        $descriere =
-            'Servicii conform pontaj - ' .
-            date('m/Y', $timestampLuna);
-    }
-}
-
-if ($numeColaborator !== '') {
-
-    $descriere .=
-        ' - ' .
-        $numeColaborator;
-}
-
-
-// ============================================================
-// CANTITATE
-// ============================================================
-
-$cantitate = $zileFacturate;
-
-if ($cantitate <= 0) {
-    $cantitate = 1;
-}
-
-
-// ============================================================
-// PREȚ UNITAR
-// ============================================================
-
-$pretUnitar = $subtotal / $cantitate;
-
-
-// ============================================================
-// XML
-// ============================================================
-
-$xml = new DOMDocument(
-    '1.0',
-    'UTF-8'
-);
-
-$xml->formatOutput = true;
-
-
-// ============================================================
-// ROOT
-// ============================================================
-
-$invoice = $xml->createElementNS(
-    'urn:oasis:names:specification:ubl:schema:xsd:Invoice-2',
-    'Invoice'
-);
-
-$invoice->setAttributeNS(
-    'http://www.w3.org/2000/xmlns/',
-    'xmlns:cac',
-    'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2'
-);
-
-$invoice->setAttributeNS(
-    'http://www.w3.org/2000/xmlns/',
-    'xmlns:cbc',
-    'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2'
-);
-
-$invoice->setAttributeNS(
-    'http://www.w3.org/2000/xmlns/',
-    'xmlns:ccts',
-    'urn:un:unece:uncefact:documentation:2'
-);
-
-$invoice->setAttributeNS(
-    'http://www.w3.org/2000/xmlns/',
-    'xmlns:qdt',
-    'urn:oasis:names:specification:ubl:schema:xsd:QualifiedDataTypes-2'
-);
-
-$invoice->setAttributeNS(
-    'http://www.w3.org/2000/xmlns/',
-    'xmlns:udt',
-    'urn:un:unece:uncefact:data:specification:UnqualifiedDataTypesSchemaModule:2'
-);
-
-$xml->appendChild($invoice);
-
-
-// ============================================================
-// HELPER XML NODE
-// ============================================================
-
-function addNode(
+function addCBC(
     DOMDocument $xml,
     DOMElement $parent,
     string $name,
-    string $value,
-    ?string $namespace = null
+    string $value = ''
 ): DOMElement {
 
-    if ($namespace === null) {
-        $namespace =
-            'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2';
-    }
-
     $node = $xml->createElementNS(
-        $namespace,
+        'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
         'cbc:' . $name
     );
 
-    $node->appendChild(
-        $xml->createTextNode($value)
-    );
+    if ($value !== '') {
+
+        $node->appendChild(
+            $xml->createTextNode($value)
+        );
+    }
 
     $parent->appendChild($node);
 
@@ -647,7 +527,11 @@ function addNode(
 }
 
 
-function addCac(
+/* ============================================================
+   XML CAC ELEMENT
+   ============================================================ */
+
+function addCAC(
     DOMDocument $xml,
     DOMElement $parent,
     string $name
@@ -664,11 +548,565 @@ function addCac(
 }
 
 
-// ============================================================
-// CUSTOMIZATION ID
-// ============================================================
+/* ============================================================
+   XML ATTRIBUTE
+   ============================================================ */
 
-addNode(
+function addAttribute(
+    DOMElement $node,
+    string $name,
+    string $value
+): void {
+
+    $node->setAttribute(
+        $name,
+        $value
+    );
+}
+
+
+/* ============================================================
+   6. PONTAJ ID
+   ============================================================ */
+
+$pontajId = filter_input(
+    INPUT_GET,
+    'id',
+    FILTER_VALIDATE_INT
+);
+
+if (!$pontajId) {
+
+    http_response_code(400);
+
+    die(
+        '<h2>ID pontaj lipsă</h2>' .
+        '<p>Exemplu:</p>' .
+        '<pre>EFacturaXML.php?id=1</pre>'
+    );
+}
+
+
+/* ============================================================
+   7. CITIRE PONTAJ
+   ============================================================ */
+
+$stmt = $pdo->prepare(
+    "
+    SELECT *
+    FROM pontaje
+    WHERE id = :id
+    LIMIT 1
+    "
+);
+
+$stmt->execute([
+    ':id' => $pontajId
+]);
+
+$pontaj = $stmt->fetch();
+
+if (!$pontaj) {
+
+    http_response_code(404);
+
+    die(
+        '<h2>Pontajul nu exista</h2>'
+    );
+}
+
+if (
+    strtolower(trim((string)$pontaj['status']))
+    !== 'aprobat'
+) {
+
+    http_response_code(400);
+
+    die(
+        '<h2>Pontajul nu este aprobat</h2>' .
+        '<p>XML-ul de e-Factura poate fi generat ' .
+        'doar pentru pontaje cu status "aprobat".</p>'
+    );
+}
+
+if (
+    trim((string)$pontaj['serie_factura']) === '' ||
+    trim((string)$pontaj['numar_factura']) === ''
+) {
+
+    throw new RuntimeException(
+        'Pontajul nu are serie/număr de factură completate.'
+    );
+}
+
+
+/* ============================================================
+   8. CITIRE CLIENT
+   ============================================================ */
+
+$stmt = $pdo->prepare(
+    "
+    SELECT *
+    FROM clienti
+    WHERE id = :id
+    LIMIT 1
+    "
+);
+
+$stmt->execute([
+    ':id' => $pontaj['client_id']
+]);
+
+$client = $stmt->fetch();
+
+if (!$client) {
+
+    throw new RuntimeException(
+        'Clientul pontajului nu exista.'
+    );
+}
+
+
+/* ============================================================
+   9. FURNIZOR
+   ============================================================ */
+
+$furnizorRow = getFurnizorSettings($pdo);
+
+$furnizor = [
+
+    'nume' =>
+        trim((string)($furnizorRow['furnizor_nume'] ?? '')),
+
+    'cui' =>
+        trim((string)($furnizorRow['furnizor_cui'] ?? '')),
+
+    'reg_com' =>
+        trim((string)($furnizorRow['furnizor_reg_com'] ?? '')),
+
+    'adresa' =>
+        trim((string)($furnizorRow['furnizor_adresa'] ?? '')),
+
+    'localitate' =>
+        trim((string)($furnizorRow['furnizor_localitate'] ?? '')),
+
+    'judet' =>
+        trim((string)($furnizorRow['furnizor_judet'] ?? '')),
+
+    'cod_postal' =>
+        trim((string)($furnizorRow['furnizor_cod_postal'] ?? '')),
+
+    'telefon' =>
+        trim((string)($furnizorRow['furnizor_telefon'] ?? '')),
+
+    'email' =>
+        trim((string)($furnizorRow['furnizor_email'] ?? '')),
+
+    'banca' =>
+        trim((string)($furnizorRow['furnizor_banca'] ?? '')),
+
+    'iban' =>
+        trim((string)($furnizorRow['furnizor_iban'] ?? ''))
+];
+
+
+/*
+ * Câmpuri obligatorii (păstrează aceeași validare
+ * ca înainte, când se foloseau setări separate).
+ */
+
+foreach (['nume', 'cui', 'adresa', 'localitate'] as $requiredField) {
+
+    if ($furnizor[$requiredField] === '') {
+
+        throw new RuntimeException(
+            'Lipsește câmpul furnizor_' . $requiredField .
+            ' din tabela setari (rândul cu cheie = date_firma).'
+        );
+    }
+}
+
+
+/* ============================================================
+   10. DATE FACTURA (calculate direct din pontaj)
+   ============================================================ */
+
+/*
+ * Preț fix pe zi facturată, RON.
+ *
+ * ATENȚIE: aceeași valoare este folosită și în
+ * actions/genereaza_factura.php (generarea PDF-ului).
+ * Dacă se schimbă aici, trebuie schimbată și acolo,
+ * altfel PDF-ul și XML-ul vor avea sume diferite.
+ */
+
+$pretPeZi = 100;
+
+$serie = trim(
+    (string)$pontaj['serie_factura']
+);
+
+$numar = trim(
+    (string)$pontaj['numar_factura']
+);
+
+$invoiceId =
+    $serie . $numar;
+
+$dataEmitere = date('Y-m-d');
+
+$dataScadenta = date('Y-m-d');
+
+$moneda = 'RON';
+
+$zileFacturate =
+    (float)(
+        $pontaj['zile_facturate']
+        ?? 0
+    );
+
+$subtotal =
+    $pretPeZi * $zileFacturate;
+
+/*
+ * Nu există calcul de TVA în fluxul actual (vezi și
+ * actions/genereaza_factura.php) — se presupune
+ * furnizor neplătitor de TVA / scutit.
+ */
+
+$tva = 0.0;
+
+$total = $subtotal;
+
+
+/* ============================================================
+   11. TVA
+   ============================================================ */
+
+$tvaPercent = 0;
+
+if ($subtotal > 0 && $tva > 0) {
+
+    $tvaPercent =
+        round(
+            ($tva / $subtotal) * 100,
+            2
+        );
+}
+
+
+/* ============================================================
+   12. CLIENT
+   ============================================================ */
+
+$clientNume =
+    trim(
+        (string)$client['nume']
+    );
+
+$clientCui =
+    trim(
+        (string)$client['cui']
+    );
+
+$clientCuiNumeric =
+    cuiNumeric($clientCui);
+
+if (
+    $clientCuiNumeric !== '' &&
+    !cuiChecksumValid($clientCui)
+) {
+
+    throw new RuntimeException(
+        'CUI-ul clientului "' .
+        $clientNume .
+        '" (' .
+        $clientCui .
+        ') nu este valid (cifra de control nu ' .
+        'corespunde). Verifică CUI-ul în tabela clienti.'
+    );
+}
+
+/*
+ * BR-CO-09: cbc:CompanyID trebuie să înceapă cu prefixul
+ * de țară ISO ("RO"), indiferent cum a fost introdus CUI-ul
+ * clientului în baza de date.
+ */
+
+$clientCuiNormalized =
+    'RO' . $clientCuiNumeric;
+
+$clientAdresa =
+    trim(
+        (string)$client['adresa']
+    );
+
+$clientTelefon =
+    trim(
+        (string)$client['telefon']
+    );
+
+$clientEmail =
+    trim(
+        (string)$client['email']
+    );
+
+
+/*
+ * Tabela clienti are (de regulă) o singură coloană pentru adresă.
+ *
+ * BR-RO-092 cere obligatoriu orașul cumpărătorului (BT-52).
+ * Dacă în viitor se adaugă o coloană dedicată (ex: 'localitate'
+ * sau 'oras') în tabela clienti, aceasta are prioritate.
+ * Ca fallback, extragem orașul din ultimul segment al adresei
+ * (text de după ultima virgulă), acolo unde adresa e scrisă
+ * in formatul "Strada nr. X, Oras".
+ */
+
+$clientLocalitate =
+    trim(
+        (string)(
+            $client['localitate']
+            ?? $client['oras']
+            ?? ''
+        )
+    );
+
+if ($clientLocalitate === '' && $clientAdresa !== '') {
+
+    $adresaParts =
+        explode(',', $clientAdresa);
+
+    if (count($adresaParts) > 1) {
+
+        $clientLocalitate =
+            trim(
+                (string)end($adresaParts)
+            );
+    }
+}
+
+if ($clientLocalitate === '') {
+
+    throw new RuntimeException(
+        'Localitatea clientului (BT-52) lipsește. ' .
+        'Adaugă localitatea în tabela clienti sau ' .
+        'scrie adresa în formatul "Strada, Oraș".'
+    );
+}
+
+/*
+ * Județul clientului (BT-54), necesar pentru BR-RO-111
+ * ca subdiviziune ISO 3166-2:RO.
+ *
+ * Ordine de căutare:
+ *   1. Coloana dedicată 'judet' din tabela clienti (dacă există).
+ *   2. Deducere din orașul deja extras ($clientLocalitate),
+ *      pentru reședințele de județ cunoscute.
+ *   3. Dacă tot nu se poate determina, oprim generarea și
+ *      cerem completarea manuală — o presupunere greșită
+ *      a județului ar produce o factură invalidă la SPV.
+ */
+
+$clientJudetRaw =
+    trim(
+        (string)(
+            $client['judet']
+            ?? ''
+        )
+    );
+
+$clientJudet =
+    judetIso(
+        $clientJudetRaw
+    );
+
+if ($clientJudet === '') {
+
+    $clientJudet =
+        judetIsoFromCity(
+            $clientLocalitate
+        );
+}
+
+if ($clientJudet === '') {
+
+    throw new RuntimeException(
+        'Județul clientului "' .
+        $clientNume .
+        '" (BT-54) lipsește sau nu este recunoscut. ' .
+        'Adaugă o coloană "judet" în tabela clienti ' .
+        'cu numele județului (ex: "Cluj") sau codul ISO ' .
+        '(ex: "RO-CJ"), sau completează orașul cu o ' .
+        'reședință de județ recunoscută (ex: "Cluj-Napoca").'
+    );
+}
+
+$clientCodPostal = '';
+
+
+/* ============================================================
+   13. DATE PONTAJ (colaborator / lună facturare)
+   ============================================================ */
+
+$numeColaborator =
+    trim(
+        (string)(
+            $pontaj['nume_prenume']
+            ?? ''
+        )
+    );
+
+$lunaFacturare =
+    trim(
+        (string)(
+            $pontaj['luna_facturare']
+            ?? ''
+        )
+    );
+
+
+/* ============================================================
+   15. CANTITATE
+   ============================================================ */
+
+$cantitate =
+    $zileFacturate;
+
+if ($cantitate <= 0) {
+
+    $cantitate = 1;
+}
+
+
+/* ============================================================
+   16. PREȚ UNITAR
+   ============================================================ */
+
+$pretUnitar =
+    $subtotal / $cantitate;
+
+
+/* ============================================================
+   17. DESCRIERE
+   ============================================================ */
+
+$descriere =
+    'Servicii conform pontaj';
+
+
+if ($lunaFacturare !== '') {
+
+    $timestamp =
+        strtotime(
+            $lunaFacturare
+        );
+
+    if ($timestamp !== false) {
+
+        $descriere .=
+            ' - ' .
+            date(
+                'm/Y',
+                $timestamp
+            );
+    }
+}
+
+
+if ($numeColaborator !== '') {
+
+    $descriere .=
+        ' - ' .
+        $numeColaborator;
+}
+
+
+/* ============================================================
+   18. CUI FURNIZOR
+   ============================================================ */
+
+$furnizorCuiNumeric =
+    cuiNumeric(
+        $furnizor['cui']
+    );
+
+if (
+    $furnizorCuiNumeric !== '' &&
+    !cuiChecksumValid($furnizor['cui'])
+) {
+
+    throw new RuntimeException(
+        'CUI-ul furnizorului (' .
+        $furnizor['cui'] .
+        ') nu este valid (cifra de control nu ' .
+        'corespunde). Verifică setarea ' .
+        'efactura_furnizor_cui.'
+    );
+}
+
+/*
+ * BR-CO-09: cbc:CompanyID din PartyTaxScheme trebuie să
+ * înceapă obligatoriu cu prefixul de țară ISO (ex: "RO").
+ * Reconstruim mereu cu prefixul RO, indiferent cum a fost
+ * introdus în setare (cu sau fără "RO").
+ */
+
+$furnizorCui =
+    'RO' . $furnizorCuiNumeric;
+
+
+/* ============================================================
+   19. CREARE DOCUMENT XML
+   ============================================================ */
+
+$xml =
+    new DOMDocument(
+        '1.0',
+        'UTF-8'
+    );
+
+$xml->formatOutput = true;
+
+
+/* ============================================================
+   20. ROOT UBL INVOICE
+   ============================================================ */
+
+$invoice =
+    $xml->createElementNS(
+        'urn:oasis:names:specification:ubl:schema:xsd:Invoice-2',
+        'Invoice'
+    );
+
+
+/*
+ * Namespace-uri UBL
+ */
+
+$invoice->setAttributeNS(
+    'http://www.w3.org/2000/xmlns/',
+    'xmlns:cac',
+    'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2'
+);
+
+$invoice->setAttributeNS(
+    'http://www.w3.org/2000/xmlns/',
+    'xmlns:cbc',
+    'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2'
+);
+
+
+$xml->appendChild(
+    $invoice
+);
+
+
+/* ============================================================
+   21. CUSTOMIZATION ID
+   ============================================================ */
+
+addCBC(
     $xml,
     $invoice,
     'CustomizationID',
@@ -676,35 +1114,23 @@ addNode(
 );
 
 
-// ============================================================
-// PROFILE ID
-// ============================================================
+/* ============================================================
+   22. ID FACTURA
+   ============================================================ */
 
-addNode(
-    $xml,
-    $invoice,
-    'ProfileID',
-    'urn:fdc:peppol.eu:2017:poacc:billing:01:1.0'
-);
-
-
-// ============================================================
-// ID FACTURA
-// ============================================================
-
-addNode(
+addCBC(
     $xml,
     $invoice,
     'ID',
-    $numarFactura
+    $invoiceId
 );
 
 
-// ============================================================
-// DATA FACTURA
-// ============================================================
+/* ============================================================
+   23. DATA EMITERII
+   ============================================================ */
 
-addNode(
+addCBC(
     $xml,
     $invoice,
     'IssueDate',
@@ -712,28 +1138,11 @@ addNode(
 );
 
 
-// ============================================================
-// TIP FACTURA
-// ============================================================
+/* ============================================================
+   24. DATA SCADENTA
+   ============================================================ */
 
-$typeCode = addNode(
-    $xml,
-    $invoice,
-    'InvoiceTypeCode',
-    $invoiceTypeCode
-);
-
-$typeCode->setAttribute(
-    'listID',
-    'UNCL1001'
-);
-
-
-// ============================================================
-// DATA SCADENTA
-// ============================================================
-
-addNode(
+addCBC(
     $xml,
     $invoice,
     'DueDate',
@@ -741,111 +1150,131 @@ addNode(
 );
 
 
-// ============================================================
-// MONEDA
-// ============================================================
+/* ============================================================
+   25. TIP FACTURA
+   ============================================================ */
 
-addNode(
+addCBC(
+    $xml,
+    $invoice,
+    'InvoiceTypeCode',
+    '380'
+);
+
+
+/* ============================================================
+   26. MONEDA
+   ============================================================ */
+
+addCBC(
     $xml,
     $invoice,
     'DocumentCurrencyCode',
     $moneda
 );
 
+/* ============================================================
+   27. FURNIZOR
+   ============================================================ */
 
-// ============================================================
-// FURNIZOR
-// ============================================================
+$supplierParty =
+    addCAC(
+        $xml,
+        $invoice,
+        'AccountingSupplierParty'
+    );
 
-$supplierParty = addCac(
+$supplier =
+    addCAC(
+        $xml,
+        $supplierParty,
+        'Party'
+    );
+
+
+/*
+ * Identificare furnizor
+ *
+ * Pentru CUI folosim schemeID 9925.
+ */
+
+if ($furnizorCuiNumeric !== '') {
+
+    $endpoint =
+        addCBC(
+            $xml,
+            $supplier,
+            'EndpointID',
+            $furnizorCuiNumeric
+        );
+
+    addAttribute(
+        $endpoint,
+        'schemeID',
+        '9925'
+    );
+
+
+    $partyIdentification =
+        addCAC(
+            $xml,
+            $supplier,
+            'PartyIdentification'
+        );
+
+    addCBC(
+        $xml,
+        $partyIdentification,
+        'ID',
+        $furnizorCuiNumeric
+    );
+}
+
+
+/* ============================================================
+   NUME FURNIZOR
+   ============================================================ */
+
+$partyName =
+    addCAC(
+        $xml,
+        $supplier,
+        'PartyName'
+    );
+
+addCBC(
     $xml,
-    $invoice,
-    'AccountingSupplierParty'
-);
-
-$supplier = addCac(
-    $xml,
-    $supplierParty,
-    'Party'
-);
-
-
-// ============================================================
-// IDENTIFICARE FURNIZOR
-// ============================================================
-
-$supplierEndpoint = addNode(
-    $xml,
-    $supplier,
-    'EndpointID',
-    $furnizorCuiNumeric
-);
-
-$supplierEndpoint->setAttribute(
-    'schemeID',
-    'EM'
-);
-
-
-// ============================================================
-// PARTY IDENTIFICATION
-// ============================================================
-
-$supplierIdentification = addCac(
-    $xml,
-    $supplier,
-    'PartyIdentification'
-);
-
-addNode(
-    $xml,
-    $supplierIdentification,
-    'ID',
-    $furnizorCuiNumeric
-);
-
-
-// ============================================================
-// PARTY NAME
-// ============================================================
-
-$supplierName = addCac(
-    $xml,
-    $supplier,
-    'PartyName'
-);
-
-addNode(
-    $xml,
-    $supplierName,
+    $partyName,
     'Name',
     $furnizor['nume']
 );
 
 
-// ============================================================
-// ADRESA FURNIZOR
-// ============================================================
+/* ============================================================
+   ADRESA FURNIZOR
+   ============================================================ */
 
-$supplierAddress = addCac(
+$supplierAddress =
+    addCAC(
+        $xml,
+        $supplier,
+        'PostalAddress'
+    );
+
+
+addCBC(
     $xml,
-    $supplier,
-    'PostalAddress'
+    $supplierAddress,
+    'StreetName',
+    $furnizor['adresa']
 );
 
-if ($furnizor['adresa'] !== '') {
 
-    addNode(
-        $xml,
-        $supplierAddress,
-        'StreetName',
-        $furnizor['adresa']
-    );
-}
+if (
+    $furnizor['localitate'] !== ''
+) {
 
-if ($furnizor['localitate'] !== '') {
-
-    addNode(
+    addCBC(
         $xml,
         $supplierAddress,
         'CityName',
@@ -853,9 +1282,12 @@ if ($furnizor['localitate'] !== '') {
     );
 }
 
-if ($furnizor['cod_postal'] !== '') {
 
-    addNode(
+if (
+    $furnizor['cod_postal'] !== ''
+) {
+
+    addCBC(
         $xml,
         $supplierAddress,
         'PostalZone',
@@ -863,59 +1295,88 @@ if ($furnizor['cod_postal'] !== '') {
     );
 }
 
-if ($furnizor['judet'] !== '') {
 
-    addNode(
-        $xml,
-        $supplierAddress,
-        'CountrySubentity',
-        'RO-' . $furnizor['judet']
+$furnizorJudetIso =
+    judetIso(
+        $furnizor['judet']
+    );
+
+if (
+    $furnizor['judet'] !== '' &&
+    $furnizorJudetIso === ''
+) {
+
+    throw new RuntimeException(
+        'Județul furnizorului ("' .
+        $furnizor['judet'] .
+        '") nu a putut fi asociat unui cod ISO 3166-2:RO. ' .
+        'Verifică setarea efactura_furnizor_judet.'
     );
 }
 
+if ($furnizorJudetIso === '') {
 
-// ============================================================
-// COUNTRY FURNIZOR
-// ============================================================
+    throw new RuntimeException(
+        'Județul furnizorului (BT-39) lipsește. ' .
+        'Completează setarea efactura_furnizor_judet ' .
+        '(ex: "Vrancea" sau direct "RO-VN").'
+    );
+}
 
-$supplierCountry = addCac(
+addCBC(
     $xml,
     $supplierAddress,
-    'Country'
+    'CountrySubentity',
+    $furnizorJudetIso
 );
 
-addNode(
+
+/* ============================================================
+   TARA FURNIZOR
+   ============================================================ */
+
+$country =
+    addCAC(
+        $xml,
+        $supplierAddress,
+        'Country'
+    );
+
+addCBC(
     $xml,
-    $supplierCountry,
+    $country,
     'IdentificationCode',
     'RO'
 );
 
 
-// ============================================================
-// TAX SCHEME FURNIZOR
-// ============================================================
+/* ============================================================
+   TAX SCHEME FURNIZOR
+   ============================================================ */
 
-$supplierTaxScheme = addCac(
-    $xml,
-    $supplier,
-    'PartyTaxScheme'
-);
+$taxSchemeParty =
+    addCAC(
+        $xml,
+        $supplier,
+        'PartyTaxScheme'
+    );
 
-addNode(
+addCBC(
     $xml,
-    $supplierTaxScheme,
+    $taxSchemeParty,
     'CompanyID',
-    $furnizorCuiNormalized
+    $furnizorCui
 );
 
-$taxScheme = addCac(
-    $xml,
-    $supplierTaxScheme,
-    'TaxScheme'
-);
 
-addNode(
+$taxScheme =
+    addCAC(
+        $xml,
+        $taxSchemeParty,
+        'TaxScheme'
+    );
+
+addCBC(
     $xml,
     $taxScheme,
     'ID',
@@ -923,52 +1384,60 @@ addNode(
 );
 
 
-// ============================================================
-// LEGAL ENTITY FURNIZOR
-// ============================================================
+/* ============================================================
+   ENTITATE JURIDICA FURNIZOR
+   ============================================================ */
 
-$supplierLegal = addCac(
-    $xml,
-    $supplier,
-    'PartyLegalEntity'
-);
+$legalEntity =
+    addCAC(
+        $xml,
+        $supplier,
+        'PartyLegalEntity'
+    );
 
-addNode(
+addCBC(
     $xml,
-    $supplierLegal,
+    $legalEntity,
     'RegistrationName',
     $furnizor['nume']
 );
 
-if ($furnizor['reg_com'] !== '') {
 
-    addNode(
+if (
+    $furnizor['reg_com'] !== ''
+) {
+
+    addCBC(
         $xml,
-        $supplierLegal,
+        $legalEntity,
         'CompanyID',
         $furnizor['reg_com']
     );
 }
 
 
-// ============================================================
-// CONTACT FURNIZOR
-// ============================================================
+/* ============================================================
+   CONTACT FURNIZOR
+   ============================================================ */
 
 if (
     $furnizor['telefon'] !== '' ||
     $furnizor['email'] !== ''
 ) {
 
-    $contact = addCac(
-        $xml,
-        $supplier,
-        'Contact'
-    );
+    $contact =
+        addCAC(
+            $xml,
+            $supplier,
+            'Contact'
+        );
 
-    if ($furnizor['telefon'] !== '') {
 
-        addNode(
+    if (
+        $furnizor['telefon'] !== ''
+    ) {
+
+        addCBC(
             $xml,
             $contact,
             'Telephone',
@@ -976,9 +1445,12 @@ if (
         );
     }
 
-    if ($furnizor['email'] !== '') {
 
-        addNode(
+    if (
+        $furnizor['email'] !== ''
+    ) {
+
+        addCBC(
             $xml,
             $contact,
             'ElectronicMail',
@@ -988,75 +1460,76 @@ if (
 }
 
 
-// ============================================================
-// CUMPĂRĂTOR
-// ============================================================
+/* ============================================================
+   28. CLIENT
+   ============================================================ */
 
-$customerParty = addCac(
-    $xml,
-    $invoice,
-    'AccountingCustomerParty'
-);
-
-$customer = addCac(
-    $xml,
-    $customerParty,
-    'Party'
-);
-
-
-// ============================================================
-// ENDPOINT CLIENT
-// ============================================================
-
-if ($clientCuiNumeric !== '') {
-
-    $customerEndpoint = addNode(
+$customerParty =
+    addCAC(
         $xml,
-        $customer,
-        'EndpointID',
-        $clientCuiNumeric
+        $invoice,
+        'AccountingCustomerParty'
     );
 
-    $customerEndpoint->setAttribute(
+$customer =
+    addCAC(
+        $xml,
+        $customerParty,
+        'Party'
+    );
+
+
+/* ============================================================
+   IDENTIFICARE CLIENT
+   ============================================================ */
+
+if (
+    $clientCuiNumeric !== ''
+) {
+
+    $endpoint =
+        addCBC(
+            $xml,
+            $customer,
+            'EndpointID',
+            $clientCuiNumeric
+        );
+
+    addAttribute(
+        $endpoint,
         'schemeID',
-        'EM'
-    );
-}
-
-
-// ============================================================
-// IDENTIFICATION CLIENT
-// ============================================================
-
-if ($clientCuiNumeric !== '') {
-
-    $customerIdentification = addCac(
-        $xml,
-        $customer,
-        'PartyIdentification'
+        '9925'
     );
 
-    addNode(
+
+    $partyIdentification =
+        addCAC(
+            $xml,
+            $customer,
+            'PartyIdentification'
+        );
+
+    addCBC(
         $xml,
-        $customerIdentification,
+        $partyIdentification,
         'ID',
         $clientCuiNumeric
     );
 }
 
 
-// ============================================================
-// NUME CLIENT
-// ============================================================
+/* ============================================================
+   NUME CLIENT
+   ============================================================ */
 
-$customerName = addCac(
-    $xml,
-    $customer,
-    'PartyName'
-);
+$customerName =
+    addCAC(
+        $xml,
+        $customer,
+        'PartyName'
+    );
 
-addNode(
+addCBC(
     $xml,
     $customerName,
     'Name',
@@ -1064,19 +1537,21 @@ addNode(
 );
 
 
-// ============================================================
-// ADRESA CLIENT
-// ============================================================
+/* ============================================================
+   ADRESA CLIENT
+   ============================================================ */
 
-$customerAddress = addCac(
-    $xml,
-    $customer,
-    'PostalAddress'
-);
+$customerAddress =
+    addCAC(
+        $xml,
+        $customer,
+        'PostalAddress'
+    );
+
 
 if ($clientAdresa !== '') {
 
-    addNode(
+    addCBC(
         $xml,
         $customerAddress,
         'StreetName',
@@ -1084,9 +1559,10 @@ if ($clientAdresa !== '') {
     );
 }
 
+
 if ($clientLocalitate !== '') {
 
-    addNode(
+    addCBC(
         $xml,
         $customerAddress,
         'CityName',
@@ -1094,9 +1570,10 @@ if ($clientLocalitate !== '') {
     );
 }
 
+
 if ($clientCodPostal !== '') {
 
-    addNode(
+    addCBC(
         $xml,
         $customerAddress,
         'PostalZone',
@@ -1104,28 +1581,30 @@ if ($clientCodPostal !== '') {
     );
 }
 
+
 if ($clientJudet !== '') {
 
-    addNode(
+    addCBC(
         $xml,
         $customerAddress,
         'CountrySubentity',
-        'RO-' . $clientJudet
+        $clientJudet
     );
 }
 
 
-// ============================================================
-// COUNTRY CLIENT
-// ============================================================
+/* ============================================================
+   TARA CLIENT
+   ============================================================ */
 
-$customerCountry = addCac(
-    $xml,
-    $customerAddress,
-    'Country'
-);
+$customerCountry =
+    addCAC(
+        $xml,
+        $customerAddress,
+        'Country'
+    );
 
-addNode(
+addCBC(
     $xml,
     $customerCountry,
     'IdentificationCode',
@@ -1133,51 +1612,57 @@ addNode(
 );
 
 
-// ============================================================
-// TAX SCHEME CLIENT
-// ============================================================
+/* ============================================================
+   TAX SCHEME CLIENT
+   ============================================================ */
 
-$customerTaxScheme = addCac(
-    $xml,
-    $customer,
-    'PartyTaxScheme'
-);
+if (
+    $clientCuiNumeric !== ''
+) {
 
-if ($clientCuiNumeric !== '') {
+    $customerTax =
+        addCAC(
+            $xml,
+            $customer,
+            'PartyTaxScheme'
+        );
 
-    addNode(
+    addCBC(
         $xml,
-        $customerTaxScheme,
+        $customerTax,
         'CompanyID',
         $clientCuiNormalized
     );
+
+
+    $customerTaxScheme =
+        addCAC(
+            $xml,
+            $customerTax,
+            'TaxScheme'
+        );
+
+    addCBC(
+        $xml,
+        $customerTaxScheme,
+        'ID',
+        'VAT'
+    );
 }
 
-$customerTaxSchemeNode = addCac(
-    $xml,
-    $customerTaxScheme,
-    'TaxScheme'
-);
 
-addNode(
-    $xml,
-    $customerTaxSchemeNode,
-    'ID',
-    'VAT'
-);
+/* ============================================================
+   ENTITATE JURIDICA CLIENT
+   ============================================================ */
 
+$customerLegal =
+    addCAC(
+        $xml,
+        $customer,
+        'PartyLegalEntity'
+    );
 
-// ============================================================
-// LEGAL ENTITY CLIENT
-// ============================================================
-
-$customerLegal = addCac(
-    $xml,
-    $customer,
-    'PartyLegalEntity'
-);
-
-addNode(
+addCBC(
     $xml,
     $customerLegal,
     'RegistrationName',
@@ -1185,24 +1670,28 @@ addNode(
 );
 
 
-// ============================================================
-// CONTACT CLIENT
-// ============================================================
+/* ============================================================
+   CONTACT CLIENT
+   ============================================================ */
 
 if (
     $clientTelefon !== '' ||
     $clientEmail !== ''
 ) {
 
-    $customerContact = addCac(
-        $xml,
-        $customer,
-        'Contact'
-    );
+    $customerContact =
+        addCAC(
+            $xml,
+            $customer,
+            'Contact'
+        );
 
-    if ($clientTelefon !== '') {
 
-        addNode(
+    if (
+        $clientTelefon !== ''
+    ) {
+
+        addCBC(
             $xml,
             $customerContact,
             'Telephone',
@@ -1210,9 +1699,12 @@ if (
         );
     }
 
-    if ($clientEmail !== '') {
 
-        addNode(
+    if (
+        $clientEmail !== ''
+    ) {
+
+        addCBC(
             $xml,
             $customerContact,
             'ElectronicMail',
@@ -1222,242 +1714,268 @@ if (
 }
 
 
-// ============================================================
-// PAYMENT MEANS
-// ============================================================
+/* ============================================================
+   29. PAYMENT MEANS
+   ============================================================ */
 
-$paymentMeans = addCac(
-    $xml,
-    $invoice,
-    'PaymentMeans'
-);
-
-addNode(
-    $xml,
-    $paymentMeans,
-    'PaymentMeansCode',
-    '30'
-);
-
-
-// ============================================================
-// CONT BANCAR FURNIZOR
-// ============================================================
-
-if ($furnizor['iban'] !== '') {
-
-    $payeeAccount = addCac(
+$paymentMeans =
+    addCAC(
         $xml,
-        $paymentMeans,
-        'PayeeFinancialAccount'
+        $invoice,
+        'PaymentMeans'
     );
 
-    addNode(
+
+$paymentCode =
+    addCBC(
         $xml,
-        $payeeAccount,
+        $paymentMeans,
+        'PaymentMeansCode',
+        '30'
+    );
+
+
+/* ============================================================
+   IBAN
+   ============================================================ */
+
+if (
+    $furnizor['iban'] !== ''
+) {
+
+    $account =
+        addCAC(
+            $xml,
+            $paymentMeans,
+            'PayeeFinancialAccount'
+        );
+
+
+    addCBC(
+        $xml,
+        $account,
         'ID',
         $furnizor['iban']
     );
 
-    if ($furnizor['banca'] !== '') {
 
-        $financialInstitution = addCac(
-            $xml,
-            $payeeAccount,
-            'FinancialInstitution'
-        );
-
-        addNode(
-            $xml,
-            $financialInstitution,
-            'Name',
-            $furnizor['banca']
-        );
-    }
+    /*
+     * CIUS-RO (UBL-CR-430, UBL-CR-664) nu permite elementul
+     * cac:FinancialInstitution în PayeeFinancialAccount.
+     * Numele băncii nu se transmite în e-Factura RO;
+     * IBAN-ul de mai sus este suficient.
+     */
 }
 
 
-// ============================================================
-// TAX TOTAL
-// ============================================================
+/* ============================================================
+   30. TAX TOTAL
+   ============================================================ */
 
-$taxTotal = addCac(
-    $xml,
-    $invoice,
-    'TaxTotal'
-);
+$taxTotal =
+    addCAC(
+        $xml,
+        $invoice,
+        'TaxTotal'
+    );
 
-$taxAmount = addNode(
-    $xml,
-    $taxTotal,
-    'TaxAmount',
-    money($tva)
-);
 
-$taxAmount->setAttribute(
+$taxAmount =
+    addCBC(
+        $xml,
+        $taxTotal,
+        'TaxAmount',
+        money($tva)
+    );
+
+addAttribute(
+    $taxAmount,
     'currencyID',
     $moneda
 );
 
 
-// ============================================================
-// TAX SUBTOTAL
-// ============================================================
+/* ============================================================
+   TAX SUBTOTAL
+   ============================================================ */
 
-$taxSubtotal = addCac(
-    $xml,
-    $taxTotal,
-    'TaxSubtotal'
-);
+$taxSubtotal =
+    addCAC(
+        $xml,
+        $taxTotal,
+        'TaxSubtotal'
+    );
 
-$taxableAmount = addNode(
-    $xml,
-    $taxSubtotal,
-    'TaxableAmount',
-    money($subtotal)
-);
 
-$taxableAmount->setAttribute(
-    'currencyID',
-    $moneda
-);
+$taxableAmount =
+    addCBC(
+        $xml,
+        $taxSubtotal,
+        'TaxableAmount',
+        money($subtotal)
+    );
 
-$taxSubtotalAmount = addNode(
-    $xml,
-    $taxSubtotal,
-    'TaxAmount',
-    money($tva)
-);
-
-$taxSubtotalAmount->setAttribute(
+addAttribute(
+    $taxableAmount,
     'currencyID',
     $moneda
 );
 
 
-// ============================================================
-// TVA CATEGORY
-// ============================================================
+$taxSubAmount =
+    addCBC(
+        $xml,
+        $taxSubtotal,
+        'TaxAmount',
+        money($tva)
+    );
 
-$taxCategory = addCac(
-    $xml,
-    $taxSubtotal,
-    'TaxCategory'
+addAttribute(
+    $taxSubAmount,
+    'currencyID',
+    $moneda
 );
 
-addNode(
+
+/* ============================================================
+   TAX CATEGORY
+   ============================================================ */
+
+$taxCategory =
+    addCAC(
+        $xml,
+        $taxSubtotal,
+        'TaxCategory'
+    );
+
+
+/*
+ * S = TVA standard
+ * Z = zero rated
+ */
+
+$taxCategoryCode =
+    ($tva > 0)
+        ? 'S'
+        : 'Z';
+
+
+addCBC(
     $xml,
     $taxCategory,
     'ID',
-    $tva > 0 ? 'S' : 'Z'
+    $taxCategoryCode
 );
 
-$percentNode = addNode(
+
+addCBC(
     $xml,
     $taxCategory,
     'Percent',
     money($tvaPercent)
 );
 
-$taxCategoryScheme = addCac(
-    $xml,
-    $taxCategory,
-    'TaxScheme'
-);
 
-addNode(
+$categoryScheme =
+    addCAC(
+        $xml,
+        $taxCategory,
+        'TaxScheme'
+    );
+
+addCBC(
     $xml,
-    $taxCategoryScheme,
+    $categoryScheme,
     'ID',
     'VAT'
 );
 
 
-// ============================================================
-// LEGAL MONETARY TOTAL
-// ============================================================
+/* ============================================================
+   31. LEGAL MONETARY TOTAL
+   ============================================================ */
 
-$monetaryTotal = addCac(
-    $xml,
-    $invoice,
-    'LegalMonetaryTotal'
-);
+$monetaryTotal =
+    addCAC(
+        $xml,
+        $invoice,
+        'LegalMonetaryTotal'
+    );
 
 
-// LINE EXTENSION AMOUNT
+$lineExtensionAmount =
+    addCBC(
+        $xml,
+        $monetaryTotal,
+        'LineExtensionAmount',
+        money($subtotal)
+    );
 
-$lineExtension = addNode(
-    $xml,
-    $monetaryTotal,
-    'LineExtensionAmount',
-    money($subtotal)
-);
-
-$lineExtension->setAttribute(
+addAttribute(
+    $lineExtensionAmount,
     'currencyID',
     $moneda
 );
 
 
-// TAX EXCLUSIVE
+$taxExclusiveAmount =
+    addCBC(
+        $xml,
+        $monetaryTotal,
+        'TaxExclusiveAmount',
+        money($subtotal)
+    );
 
-$taxExclusive = addNode(
-    $xml,
-    $monetaryTotal,
-    'TaxExclusiveAmount',
-    money($subtotal)
-);
-
-$taxExclusive->setAttribute(
+addAttribute(
+    $taxExclusiveAmount,
     'currencyID',
     $moneda
 );
 
 
-// TAX INCLUSIVE
+$taxInclusiveAmount =
+    addCBC(
+        $xml,
+        $monetaryTotal,
+        'TaxInclusiveAmount',
+        money($total)
+    );
 
-$taxInclusive = addNode(
-    $xml,
-    $monetaryTotal,
-    'TaxInclusiveAmount',
-    money($total)
-);
-
-$taxInclusive->setAttribute(
+addAttribute(
+    $taxInclusiveAmount,
     'currencyID',
     $moneda
 );
 
 
-// PAYABLE
+$payableAmount =
+    addCBC(
+        $xml,
+        $monetaryTotal,
+        'PayableAmount',
+        money($total)
+    );
 
-$payable = addNode(
-    $xml,
-    $monetaryTotal,
-    'PayableAmount',
-    money($total)
-);
-
-$payable->setAttribute(
+addAttribute(
+    $payableAmount,
     'currencyID',
     $moneda
 );
 
 
-// ============================================================
-// FACTURA LINE
-// ============================================================
+/* ============================================================
+   32. INVOICE LINE
+   ============================================================ */
 
-$invoiceLine = addCac(
-    $xml,
-    $invoice,
-    'InvoiceLine'
-);
+$invoiceLine =
+    addCAC(
+        $xml,
+        $invoice,
+        'InvoiceLine'
+    );
 
 
-// ID LINIE
-
-addNode(
+addCBC(
     $xml,
     $invoiceLine,
     'ID',
@@ -1465,52 +1983,57 @@ addNode(
 );
 
 
-// CANTITATE
+/* ============================================================
+   CANTITATE
+   ============================================================ */
 
-$quantity = addNode(
-    $xml,
-    $invoiceLine,
-    'InvoicedQuantity',
-    number_format(
-        $cantitate,
-        2,
-        '.',
-        ''
-    )
-);
+$quantity =
+    addCBC(
+        $xml,
+        $invoiceLine,
+        'InvoicedQuantity',
+        decimalValue($cantitate)
+    );
 
-$quantity->setAttribute(
+addAttribute(
+    $quantity,
     'unitCode',
     'DAY'
 );
 
 
-// VALOARE LINIE
+/* ============================================================
+   VALOARE LINIE
+   ============================================================ */
 
-$lineAmount = addNode(
-    $xml,
-    $invoiceLine,
-    'LineExtensionAmount',
-    money($subtotal)
-);
+$lineAmount =
+    addCBC(
+        $xml,
+        $invoiceLine,
+        'LineExtensionAmount',
+        money($subtotal)
+    );
 
-$lineAmount->setAttribute(
+addAttribute(
+    $lineAmount,
     'currencyID',
     $moneda
 );
 
 
-// ============================================================
-// ITEM
-// ============================================================
+/* ============================================================
+   ITEM
+   ============================================================ */
 
-$item = addCac(
-    $xml,
-    $invoiceLine,
-    'Item'
-);
+$item =
+    addCAC(
+        $xml,
+        $invoiceLine,
+        'Item'
+    );
 
-addNode(
+
+addCBC(
     $xml,
     $item,
     'Name',
@@ -1518,35 +2041,43 @@ addNode(
 );
 
 
-// CLASSIFIED TAX
+/* ============================================================
+   TAX CATEGORY ITEM
+   ============================================================ */
 
-$itemTaxCategory = addCac(
-    $xml,
-    $item,
-    'ClassifiedTaxCategory'
-);
+$itemTaxCategory =
+    addCAC(
+        $xml,
+        $item,
+        'ClassifiedTaxCategory'
+    );
 
-addNode(
+
+addCBC(
     $xml,
     $itemTaxCategory,
     'ID',
-    $tva > 0 ? 'S' : 'Z'
+    $taxCategoryCode
 );
 
-addNode(
+
+addCBC(
     $xml,
     $itemTaxCategory,
     'Percent',
     money($tvaPercent)
 );
 
-$itemTaxScheme = addCac(
-    $xml,
-    $itemTaxCategory,
-    'TaxScheme'
-);
 
-addNode(
+$itemTaxScheme =
+    addCAC(
+        $xml,
+        $itemTaxCategory,
+        'TaxScheme'
+    );
+
+
+addCBC(
     $xml,
     $itemTaxScheme,
     'ID',
@@ -1554,78 +2085,129 @@ addNode(
 );
 
 
-// ============================================================
-// PRICE
-// ============================================================
+/* ============================================================
+   PRICE
+   ============================================================ */
 
-$price = addCac(
-    $xml,
-    $invoiceLine,
-    'Price'
-);
+$price =
+    addCAC(
+        $xml,
+        $invoiceLine,
+        'Price'
+    );
 
-$priceAmount = addNode(
-    $xml,
-    $price,
-    'PriceAmount',
-    money($pretUnitar)
-);
 
-$priceAmount->setAttribute(
+$priceAmount =
+    addCBC(
+        $xml,
+        $price,
+        'PriceAmount',
+        money($pretUnitar)
+    );
+
+
+addAttribute(
+    $priceAmount,
     'currencyID',
     $moneda
 );
 
 
-// ============================================================
-// VALIDARE XML
-// ============================================================
+/* ============================================================
+   33. SALVARE XML STRING
+   ============================================================ */
 
-$xmlContent = $xml->saveXML();
+$xmlContent =
+    $xml->saveXML();
 
 if ($xmlContent === false) {
 
     throw new RuntimeException(
-        'Nu s-a putut genera XML-ul.'
+        'Nu s-a putut genera continutul XML.'
     );
 }
 
 
-// ============================================================
-// CREARE DIRECTOR
-// ============================================================
+/* ============================================================
+   34. VALIDARE XML SINTACTIC
+   ============================================================ */
+
+libxml_use_internal_errors(true);
+
+$testXml =
+    simplexml_load_string(
+        $xmlContent
+    );
+
+if ($testXml === false) {
+
+    $errors =
+        libxml_get_errors();
+
+    $errorText = '';
+
+    foreach ($errors as $error) {
+
+        $errorText .=
+            trim(
+                $error->message
+            ) .
+            ' - linia ' .
+            $error->line .
+            "\n";
+    }
+
+    libxml_clear_errors();
+
+    throw new RuntimeException(
+        "XML invalid:\n" .
+        $errorText
+    );
+}
+
+libxml_clear_errors();
+
+
+/* ============================================================
+   35. DIRECTOR
+   ============================================================ */
 
 if (!is_dir($xmlDirectory)) {
 
-    if (!mkdir(
-        $xmlDirectory,
-        0775,
-        true
-    )) {
+    if (
+        !mkdir(
+            $xmlDirectory,
+            0775,
+            true
+        )
+    ) {
 
         throw new RuntimeException(
-            'Nu s-a putut crea directorul XML: ' .
+            'Nu s-a putut crea directorul: ' .
             $xmlDirectory
         );
     }
 }
 
 
-// ============================================================
-// NUME FIȘIER
-// ============================================================
+/* ============================================================
+   36. NUME FISIER
+   ============================================================ */
 
-$safeSerie = preg_replace(
-    '/[^A-Za-z0-9_-]/',
-    '_',
-    $serie
-);
+$safeSerie =
+    preg_replace(
+        '/[^A-Za-z0-9_-]/',
+        '_',
+        $serie
+    );
 
-$safeNumar = preg_replace(
-    '/[^A-Za-z0-9_-]/',
-    '_',
-    $numar
-);
+$safeNumar =
+    preg_replace(
+        '/[^A-Za-z0-9_-]/',
+        '_',
+        $numar
+    );
+
 
 $fileName =
     'Factura_' .
@@ -1634,138 +2216,157 @@ $fileName =
     $safeNumar .
     '.xml';
 
+
 $filePath =
     $xmlDirectory .
     DIRECTORY_SEPARATOR .
     $fileName;
 
 
-// ============================================================
-// SALVARE XML
-// ============================================================
+/* ============================================================
+   37. SALVARE
+   ============================================================ */
 
-if (
+$result =
     file_put_contents(
         $filePath,
         $xmlContent,
         LOCK_EX
-    ) === false
-) {
+    );
+
+
+if ($result === false) {
 
     throw new RuntimeException(
-        'Nu s-a putut salva XML-ul: ' .
-        $filePath
+        'Nu s-a putut salva fisierul XML.'
     );
 }
 
 
-// ============================================================
-// PATH RELATIV
-// ============================================================
+/* ============================================================
+   38. PATH RELATIV
+   ============================================================ */
 
 $relativePath =
     'storage/facturi/xml/' .
     $fileName;
 
 
-// ============================================================
-// UPDATE FACTURA
-// ============================================================
+/* ============================================================
+   39. UPDATE PONTAJ (status XML)
+   ============================================================ */
 
-$stmt = $pdo->prepare("
-    UPDATE facturi
-    SET
-        xml_path = :xml_path,
-        xml_status = :xml_status,
-        xml_generated_at = NOW()
-    WHERE id = :id
-");
+$stmt =
+    $pdo->prepare(
+        "
+        UPDATE pontaje
+        SET
+            xml_path = :xml_path,
+            xml_status = :xml_status,
+            xml_generated_at = NOW()
+        WHERE id = :id
+        "
+    );
+
 
 $stmt->execute([
-    ':xml_path' => $relativePath,
-    ':xml_status' => 'generat',
-    ':id' => $facturaId
+    ':xml_path' =>
+        $relativePath,
+
+    ':xml_status' =>
+        'generat',
+
+    ':id' =>
+        $pontajId
 ]);
 
 
-// ============================================================
-// AFIȘARE REZULTAT
-// ============================================================
+/* ============================================================
+   40. AFISARE
+   ============================================================ */
 
 ?>
 <!DOCTYPE html>
+
 <html lang="ro">
 
 <head>
 
-    <meta charset="UTF-8">
+<meta charset="UTF-8">
 
-    <title>
-        XML e-Factura generat
-    </title>
+<title>
+XML e-Factura <?= htmlspecialchars($invoiceId) ?>
+</title>
 
-    <style>
+<style>
 
-        body {
-            font-family: Arial, sans-serif;
-            background: #f5f6f8;
-            margin: 0;
-            padding: 40px;
-        }
+body {
+    margin: 0;
+    padding: 40px;
+    background: #f3f4f6;
+    font-family: Arial, sans-serif;
+}
 
-        .container {
-            max-width: 900px;
-            margin: auto;
-            background: #fff;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 15px rgba(0,0,0,.08);
-        }
+.container {
+    max-width: 1100px;
+    margin: auto;
+    background: #fff;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 3px 20px rgba(0,0,0,.08);
+}
 
-        h1 {
-            color: #198754;
-        }
+h1 {
+    margin-top: 0;
+}
 
-        .success {
-            background: #d1e7dd;
-            color: #0f5132;
-            padding: 15px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-        }
+.success {
+    background: #d1e7dd;
+    color: #0f5132;
+    border: 1px solid #badbcc;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
 
-        .info {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-        }
+.info {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    line-height: 1.8;
+}
 
-        .btn {
-            display: inline-block;
-            padding: 12px 18px;
-            background: #0d6efd;
-            color: white;
-            text-decoration: none;
-            border-radius: 6px;
-            margin-right: 8px;
-        }
+.buttons {
+    margin-top: 20px;
+    margin-bottom: 20px;
+}
 
-        .btn:hover {
-            background: #0b5ed7;
-        }
+.btn {
+    display: inline-block;
+    padding: 12px 18px;
+    margin-right: 8px;
+    border-radius: 6px;
+    text-decoration: none;
+    background: #0d6efd;
+    color: white;
+}
 
-        pre {
-            background: #111;
-            color: #eee;
-            padding: 20px;
-            overflow: auto;
-            max-height: 600px;
-            border-radius: 6px;
-            font-size: 13px;
-        }
+.btn:hover {
+    opacity: .9;
+}
 
-    </style>
+pre {
+    background: #111827;
+    color: #e5e7eb;
+    padding: 20px;
+    border-radius: 8px;
+    overflow: auto;
+    white-space: pre;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+</style>
 
 </head>
 
@@ -1773,71 +2374,94 @@ $stmt->execute([
 
 <div class="container">
 
-    <h1>✓ XML e-Factura generat</h1>
+<h1>
+✓ XML e-Factura generat
+</h1>
 
-    <div class="success">
+<div class="success">
 
-        XML-ul facturii a fost generat cu succes.
+XML-ul a fost generat cu succes și este XML well-formed.
 
-    </div>
+</div>
 
-    <div class="info">
+<div class="info">
 
-        <strong>Factura:</strong>
-        <?= htmlspecialchars($numarFactura) ?>
+<strong>Factura:</strong>
+<?= htmlspecialchars($invoiceId) ?>
 
-        <br><br>
+<br>
 
-        <strong>Client:</strong>
-        <?= htmlspecialchars($clientNume) ?>
+<strong>Client:</strong>
+<?= htmlspecialchars($clientNume) ?>
 
-        <br><br>
+<br>
 
-        <strong>Subtotal:</strong>
-        <?= htmlspecialchars(money($subtotal)) ?>
-        <?= htmlspecialchars($moneda) ?>
+<strong>Data emitere:</strong>
+<?= htmlspecialchars($dataEmitere) ?>
 
-        <br><br>
+<br>
 
-        <strong>TVA:</strong>
-        <?= htmlspecialchars(money($tva)) ?>
-        <?= htmlspecialchars($moneda) ?>
+<strong>Subtotal:</strong>
+<?= htmlspecialchars(money($subtotal)) ?>
+<?= htmlspecialchars($moneda) ?>
 
-        <br><br>
+<br>
 
-        <strong>Total:</strong>
-        <?= htmlspecialchars(money($total)) ?>
-        <?= htmlspecialchars($moneda) ?>
+<strong>TVA:</strong>
+<?= htmlspecialchars(money($tva)) ?>
+<?= htmlspecialchars($moneda) ?>
 
-        <br><br>
+<br>
 
-        <strong>Fișier:</strong>
-        <?= htmlspecialchars($fileName) ?>
+<strong>Total:</strong>
+<?= htmlspecialchars(money($total)) ?>
+<?= htmlspecialchars($moneda) ?>
 
-    </div>
+<br>
 
+<strong>Pontaj:</strong>
+<?= $pontaj ? 'Găsit' : 'Nu a fost găsit' ?>
 
-    <a
-        class="btn"
-        href="<?= htmlspecialchars($relativePath) ?>"
-        download
-    >
-        Descarcă XML
-    </a>
+<br>
 
+<strong>Fișier:</strong>
+<?= htmlspecialchars($fileName) ?>
 
-    <a
-        class="btn"
-        href="<?= htmlspecialchars($relativePath) ?>"
-        target="_blank"
-    >
-        Vezi XML
-    </a>
+<br>
+
+<strong>Status:</strong>
+generat
+
+</div>
 
 
-    <h3>XML generat</h3>
+<div class="buttons">
 
-    <pre><?= htmlspecialchars($xmlContent) ?></pre>
+<a
+    class="btn"
+    href="<?= htmlspecialchars($relativePath) ?>"
+    target="_blank"
+>
+Vezi XML
+</a>
+
+
+<a
+    class="btn"
+    href="<?= htmlspecialchars($relativePath) ?>"
+    download
+>
+Descarcă XML
+</a>
+
+</div>
+
+
+<h2>
+XML
+</h2>
+
+<pre><?= htmlspecialchars($xmlContent) ?></pre>
 
 </div>
 

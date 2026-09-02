@@ -243,6 +243,25 @@ $result = $mysqli->query($sql);
                                                        title="Descarcă">
                                                         <i class="fas fa-download"></i>
                                                     </a>
+
+                                                    <br class="d-none d-md-block">
+
+                                                    <?php if (!empty($row['xml_path'])): ?>
+                                                        <a href="../<?= htmlspecialchars($row['xml_path']) ?>"
+                                                           target="_blank"
+                                                           class="btn btn-success btn-sm mt-1"
+                                                           title="XML e-Factura generat">
+                                                            <i class="fas fa-file-code"></i> XML
+                                                        </a>
+                                                    <?php else: ?>
+                                                        <a href="../EFacturaXML.php?id=<?= (int)$row['id'] ?>"
+                                                           target="_blank"
+                                                           class="btn btn-outline-success btn-sm mt-1"
+                                                           title="Generează XML e-Factura">
+                                                            <i class="fas fa-file-code"></i> Generează XML
+                                                        </a>
+                                                    <?php endif; ?>
+
                                                 <?php else: ?>
                                                     <span class="badge badge-secondary">Lipsă</span>
                                                 <?php endif; ?>

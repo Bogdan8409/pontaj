@@ -12,7 +12,7 @@ try {
      *
      * SCHIMBĂ 1 CU ID-UL FACTURII TALE
      */
-    $facturaId = 1;
+    $facturaId = 5;
 
     $generator = new EFacturaXML($pdo);
 
